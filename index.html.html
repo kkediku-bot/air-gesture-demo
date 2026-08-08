@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Gesture Game Prototype v0.0.1</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0; padding: 16px; background: #0d1117; color: #c9d1d9;
+      font-family: sans-serif; display: flex; flex-direction: column; align-items: center;
+    }
+    #container {
+      position: relative; width: 100%; max-width: 480px; height: 60vh;
+      border: 2px solid #30363d; border-radius: 12px; overflow: hidden; background: #000;
+    }
+    video { display: none; }
+    canvas { width: 100%; height: 100%; transform: scaleX(-1); }
+    #ui-panel {
+      position: absolute; top: 12px; left: 12px; right: 12px; padding: 12px;
+      background: rgba(22, 27, 34, 0.85); border-radius: 8px; font-size: 14px;
+    }
+    .status { font-weight: bold; color: #3fb950; }
+    .status.drawing { color: #f85149; }
+    button {
+      margin-top: 12px; padding: 10px 20px; background: #238636; color: #fff;
+      border: none; border-radius: 6px; cursor: pointer; font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎮 Air Gesture Prototype v0.0.1</h2>
+  <div id="container">
+    <video id="webcam" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+    <div id="ui-panel">
+      <div>ท่าทาง: <span id="gesture-status" class="status">กำลังเปิดกล้อง...</span></div>
+      <div>สถานะวาดเส้น: <span id="draw-status" class="status">รอกำหนดท่าทาง</span></div>
+    </div>
+  </div>
+  <button onclick="clearCanvas()">ล้างเส้นวาด</button>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const gestureStatusEl = document.getElementById('gesture-status');
+    const drawStatusEl = document.getElementById('draw-status');
+    const container = document.getElementById('container');
+
+    let drawingPoints = [];
+    let isDrawing = false;
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+    hands.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 640, height: 480
+    });
+    camera.start();
+
+    function clearCanvas() { drawingPoints = []; }
+
+    function onResults(results) {
+      if (canvasElement.width !== container.clientWidth) {
+        canvasElement.width = container.clientWidth;
+        canvasElement.height = container.clientHeight;
+      }
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        const indexTip = landmarks[8];
+        const isIndexExtended = indexTip.y < landmarks[6].y;
+        const isMiddleExtended = landmarks[12].y < landmarks[10].y;
+        const isRingExtended = landmarks[16].y < landmarks[14].y;
+        const isPinkyExtended = landmarks[20].y < landmarks[18].y;
+
+        if (!isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+          gestureStatusEl.innerText = "✊ กำมือ (Fist)";
+          drawingPoints = [];
+          isDrawing = false;
+        } else if (isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended) {
+          gestureStatusEl.innerText = "✋ แบมือ (Open Palm)";
+          isDrawing = false;
+        } else if (isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+          gestureStatusEl.innerText = "☝️ ชูนิวชี้ (Point) -> วาดเวทมนตร์";
+          isDrawing = true;
+        }
+
+        drawStatusEl.innerText = isDrawing ? "กำลังวาด..." : "หยุดวาด";
+        drawStatusEl.className = isDrawing ? "status drawing" : "status";
+
+        if (isDrawing) {
+          drawingPoints.push({ x: indexTip.x * canvasElement.width, y: indexTip.y * canvasElement.height });
+        }
+      } else {
+        gestureStatusEl.innerText = "ไม่พบมือในกล้อง";
+        isDrawing = false;
+      }
+
+      drawAirLines(canvasCtx);
+      canvasCtx.restore();
+    }
+
+    function drawAirLines(ctx) {
+      if (drawingPoints.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = '#f85149';
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.moveTo(drawingPoints[0].x, drawingPoints[0].y);
+      for (let i = 1; i < drawingPoints.length; i++) {
+        ctx.lineTo(drawingPoints[i].x, drawingPoints[i].y);
+      }
+      ctx.stroke();
+    }
+  </script>
+</body>
+</html>
